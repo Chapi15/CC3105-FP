@@ -1,0 +1,37 @@
+# Configuración central (C1: la configuración vive separada del código).
+seed: 42
+
+storage:
+  # Local: "data". Para S3 (requiere `uv sync --extra s3` y credenciales en .env):
+  #   base_uri: s3://<bucket>/<equipo>
+  base_uri: data
+  layers:
+    raw: raw/fotos     # JSON por foto (lo que se extrae de cada foto de un rótulo de precios)
+    bronze: cusn       # bronce: lecturas aplanadas + metadatos de ingesta
+    silver: ag         # plata: precios limpios y validados
+    gold: au           # oro: series semanales + features + tablas para dashboard
+
+simulation:
+  start_date: "2025-01-06"   # lunes
+  weeks: 90
+  stations_per_department: 4
+  photo_probability: 0.7     # probabilidad de que una estación tenga foto en una semana dada
+
+model:
+  dir: models
+  # logistic_regression | gradient_boosting | random_forest
+  # Los árboles extrapolan mal cuando el nivel de precios sale del rango visto en entrenamiento:
+  # pruébalos y compara (es un buen experimento para la Entrega 1).
+  algorithm: logistic_regression
+  params:
+    C: 1.0
+  test_weeks: 18                 # últimas N semanas para prueba (split temporal, sin barajar)
+  threshold: 0.5
+  min_roc_auc: 0.65              # quality gate 1: AUC mínimo
+  must_beat_baseline: true       # quality gate 2: superar la regla "si subió, sube"
+
+monitoring:
+  reports_dir: reports
+  predictions_log: logs/predictions.jsonl
+  psi_aviso: 0.25               # PSI > 0.25: la distribución cambió, revisar
+  psi_alerta: 1.5               # PSI > 1.5: drift fuerte, investigar y re-entrenar

@@ -1,0 +1,14 @@
+__pycache__/
+*.py[cod]
+.venv/
+.pytest_cache/
+.ruff_cache/
+.ipynb_checkpoints/
+# Secretos: nunca al repo (PATs de Databricks, access keys de AWS, tokens)
+.env
+# Artefactos generados (se regeneran con `make pipeline`)
+data/
+models/
+reports/
+logs/
+data_shock/
