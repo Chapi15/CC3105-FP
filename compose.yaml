@@ -1,0 +1,35 @@
+# Local: `docker compose up -d --build`
+# Servidor (DigitalOcean): IMAGE=ghcr.io/<owner>/<repo>:latest docker compose up -d
+# Con copia de logs a S3:   docker compose --profile s3 up -d   (requiere .env)
+services:
+  api:
+    image: ${IMAGE:-gasolina-mlops-api}
+    build: .
+    ports:
+      - "${PORT:-8000}:8000"
+    environment:
+      MODEL_DIR: /app/models
+      PREDICTIONS_LOG: /app/logs/predictions.jsonl
+    volumes:
+      - api-logs:/app/logs
+    restart: unless-stopped
+
+  # Sidecar: copia el log de predicciones a S3 para analizarlo en Databricks (monitoreo, C8).
+  # Mismo patrón que docker-action-demo: S3 no se monta como volume, se sincroniza.
+  s3-sync:
+    image: amazon/aws-cli:latest
+    profiles: ["s3"]
+    env_file: .env
+    entrypoint: ["/bin/sh", "-c"]
+    command:
+      - >
+        while true; do
+          aws s3 sync /logs "s3://$${S3_BUCKET}/$${S3_PREFIX:-monitoreo}/" --exclude "*.tmp";
+          sleep $${SYNC_INTERVAL:-300};
+        done
+    volumes:
+      - api-logs:/logs:ro
+    depends_on: [api]
+
+volumes:
+  api-logs:

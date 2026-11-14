@@ -1,0 +1,50 @@
+# Integración continua (C5): lint + pruebas + pipeline completo + build y smoke test de la imagen.
+# Gitflow: corre en cada push a develop/main y en todo PR (feature/* -> develop, release/* -> main).
+name: CI
+
+on:
+  push:
+    branches: [main, develop]
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+        with:
+          version: "0.11.32"
+      - run: uv sync --locked
+      - name: Lint
+        run: make lint
+      - name: Pruebas
+        run: make test
+      - name: Pipeline completo (raw -> cusn -> ag -> au -> modelo)
+        run: make pipeline
+      - name: Monitoreo con escenario de choque (informativo)
+        run: make drift-demo
+      - name: Resumen
+        run: |
+          cat reports/model_card.md >> "$GITHUB_STEP_SUMMARY"
+          cat reports/drift_report.md >> "$GITHUB_STEP_SUMMARY"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: modelo-y-reportes
+          path: |
+            models/
+            reports/
+
+  docker:
+    needs: test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build
+        run: docker build -t gasolina-mlops-api .
+      - name: Smoke test del contenedor
+        run: |
+          docker run -d -p 8000:8000 --name api gasolina-mlops-api
+          for i in $(seq 1 30); do curl -fsS localhost:8000/health && break; sleep 2; done
+          make smoke
+          docker logs api

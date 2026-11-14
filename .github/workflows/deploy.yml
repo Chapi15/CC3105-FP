@@ -1,0 +1,91 @@
+# Entrega continua (C5, C6): publica la imagen en GHCR y la despliega en DigitalOcean.
+#
+# Tags de la imagen: latest y sha-<commit> en main; 1.2.3 en tags v1.2.3.
+# El deploy solo corre si existe la variable DO_HOST (y el secret DO_SSH_KEY) en
+# Settings -> Secrets and variables -> Actions. Nada de credenciales en el repo.
+name: Deploy
+
+on:
+  push:
+    branches: [main]
+    tags: ["v*"]
+  workflow_dispatch:
+  schedule:
+    - cron: "0 12 * * 1"   # lunes 06:00 Guatemala: re-entrena (rebuild) y re-despliega
+
+permissions:
+  contents: read
+  packages: write
+
+env:
+  REGISTRY: ghcr.io
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    outputs:
+      image: ${{ steps.vars.outputs.image }}
+    steps:
+      - uses: actions/checkout@v4
+      - id: vars
+        run: echo "image=${REGISTRY}/${GITHUB_REPOSITORY,,}" >> "$GITHUB_OUTPUT"
+      - uses: docker/setup-buildx-action@v3
+      - uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ steps.vars.outputs.image }}
+          tags: |
+            type=raw,value=latest,enable={{is_default_branch}}
+            type=sha,prefix=sha-,format=long
+            type=semver,pattern={{version}}
+      - uses: docker/build-push-action@v6
+        with:
+          context: .
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+  deploy:
+    needs: publish
+    if: ${{ vars.DO_HOST != '' }}
+    runs-on: ubuntu-latest
+    environment: produccion
+    env:
+      DO_HOST: ${{ vars.DO_HOST }}
+      DO_USER: ${{ vars.DO_USER || 'cc3105' }}
+      IMAGE: ${{ needs.publish.outputs.image }}:sha-${{ github.sha }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Configurar SSH
+        env:
+          DO_SSH_KEY: ${{ secrets.DO_SSH_KEY }}
+        run: |
+          install -m 700 -d ~/.ssh
+          printf '%s\n' "$DO_SSH_KEY" > ~/.ssh/id_ed25519
+          chmod 600 ~/.ssh/id_ed25519
+          ssh-keyscan -H "$DO_HOST" >> ~/.ssh/known_hosts
+      - name: Copiar compose.yaml
+        run: |
+          ssh "$DO_USER@$DO_HOST" "mkdir -p ~/gasolina"
+          scp compose.yaml "$DO_USER@$DO_HOST:~/gasolina/compose.yaml"
+      - name: Desplegar
+        env:
+          GHCR_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          ssh "$DO_USER@$DO_HOST" \
+            "echo '$GHCR_TOKEN' | docker login ghcr.io -u '${{ github.actor }}' --password-stdin \
+             && cd ~/gasolina \
+             && IMAGE='$IMAGE' docker compose pull api \
+             && IMAGE='$IMAGE' docker compose up -d --no-build api; \
+             docker logout ghcr.io"
+      - name: Verificar
+        run: |
+          for i in $(seq 1 20); do curl -fsS "http://$DO_HOST:8000/health" && exit 0; sleep 3; done
+          exit 1
