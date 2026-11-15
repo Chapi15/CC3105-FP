@@ -1,5 +1,7 @@
 # ¿Sube o baja la gasolina? — Proyecto de prueba CC3105
 
+[![CI](https://github.com/Chapi15/CC3105-FP/actions/workflows/ci.yml/badge.svg)](https://github.com/Chapi15/CC3105-FP/actions/workflows/ci.yml)
+
 Proyecto de referencia para el proyecto final de **CC3105 Machine Learning Engineering (MLOps)**,
 UVG. Recorre de punta a punta lo que hacen los equipos: fotos de rótulos de precios en
 Guatemala → arquitectura medallón (`cusn` / `ag` / `au`) → modelo que predice si el precio de la
